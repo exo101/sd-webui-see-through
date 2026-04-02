@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import logging
+import subprocess
 import gradio as gr
 from modules import script_callbacks
 from modules import scripts
@@ -16,6 +17,45 @@ logger.setLevel(logging.INFO)
 # 添加See-Through项目路径
 see_through_path = os.path.join(os.path.dirname(__file__), "..", "see-through")
 sys.path.insert(0, see_through_path)
+
+def install_dependencies():
+    """自动安装依赖"""
+    try:
+        import importlib
+        
+        dependencies = {
+            'psd_tools': 'psd-tools',
+            'pycocotools': 'pycocotools'
+        }
+        
+        missing_deps = []
+        for module_name, package_name in dependencies.items():
+            try:
+                importlib.import_module(module_name)
+                logger.info(f"{package_name} 已安装")
+            except ImportError:
+                logger.warning(f"{package_name} 未安装，正在安装...")
+                missing_deps.append(package_name)
+        
+        if missing_deps:
+            logger.info("正在安装缺失的依赖...")
+            for package in missing_deps:
+                try:
+                    subprocess.check_call(
+                        [sys.executable, "-m", "pip", "install", package],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
+                    logger.info(f"{package} 安装成功")
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"{package} 安装失败: {e}")
+    except Exception as e:
+        logger.error(f"依赖安装检查失败: {e}")
+
+def on_app_started(demo, app):
+    """WebUI启动时自动安装依赖"""
+    logger.info("See-Through: 检查依赖...")
+    install_dependencies()
 
 class SeeThroughScript(scripts.Script):
     def __init__(self):
@@ -88,7 +128,6 @@ class SeeThroughScript(scripts.Script):
                 return gr.update(visible=enabled), gr.update(visible=enabled)
             
             def open_output_dir():
-                import subprocess
                 output_dir = os.path.join(os.path.dirname(__file__), "..", "see-through", "workspace", "layerdiff_output")
                 output_dir = os.path.abspath(output_dir)
                 if os.path.exists(output_dir):
@@ -180,7 +219,6 @@ class SeeThroughScript(scripts.Script):
                     logger.info("开始执行处理脚本...")
                     
                     # 执行处理 - 实时输出日志
-                    import subprocess
                     process = subprocess.Popen(
                         cmd,
                         stdout=subprocess.PIPE,
@@ -262,3 +300,4 @@ def on_ui_settings():
     )
 
 script_callbacks.on_ui_settings(on_ui_settings)
+script_callbacks.on_app_started(on_app_started)
