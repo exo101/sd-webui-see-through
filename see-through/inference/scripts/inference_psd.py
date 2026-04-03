@@ -37,8 +37,11 @@ if __name__ == '__main__':
     parser.add_argument('--vae_ckpt', default=None)
     parser.add_argument('--unet_ckpt', default=None)
     parser.add_argument('--resolution', type=int, default=1280)
+    parser.add_argument('--batch_size', type=int, default=4, help='批处理大小，用于控制内存使用')
     parser.add_argument('--save_to_psd', action='store_true')
     parser.add_argument('--tblr_split', action='store_true', help='try split parts (handwear, eyes, etc) into left-right components')
+    parser.add_argument('--cache_tag_embeds', action='store_true', help='缓存文本嵌入并卸载文本编码器，节省约2GB显存')
+    parser.add_argument('--group_offload', action='store_true', help='启用组卸载，将显存降至~0.2GB，但速度降低2-3倍')
     args = parser.parse_args()
     srcp = args.srcp
 
@@ -52,11 +55,12 @@ if __name__ == '__main__':
         seed_everything(args.seed)
 
         print('running layerdiff...')
-        apply_layerdiff(srcp, args.repo_id_layerdiff, save_dir=args.save_dir, seed=args.seed, vae_ckpt=args.vae_ckpt, unet_ckpt=args.unet_ckpt, resolution=args.resolution)
+        apply_layerdiff(srcp, args.repo_id_layerdiff, save_dir=args.save_dir, seed=args.seed, vae_ckpt=args.vae_ckpt, unet_ckpt=args.unet_ckpt, resolution=args.resolution, cache_tag_embeds=args.cache_tag_embeds, group_offload=args.group_offload)
         
         print('running marigold...')
         apply_marigold(srcp, args.repo_id_depth, save_dir=args.save_dir, seed=args.seed, resolution=args.resolution)
 
         srcname = osp.basename(osp.splitext(srcp)[0])
         saved = osp.join(args.save_dir, srcname)
-        further_extr(saved, rotate=False, save_to_psd=args.save_to_psd, tblr_split=args.tblr_split)
+        # 使用批处理和内存优化，传递batch_size参数
+        further_extr(saved, rotate=False, save_to_psd=args.save_to_psd, tblr_split=args.tblr_split, batch_size=args.batch_size)
