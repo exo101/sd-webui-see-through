@@ -3,6 +3,12 @@
 ## 功能介绍
 
 See-Through 是一个基于 AI 的动漫图像分解插件，可以将单张动漫图像转换为多层 2.5D 模型。这是基于 [See-Through: Single-image Layer Decomposition for Anime Characters](https://github.com/shitagaki-lab/see-through) 项目的研究成果。
+![2E9DE36FFC34C1CD4C216A20493B08DD](https://github.com/user-attachments/assets/54a8d06b-2a3e-4964-b22e-6a1e50bea08e)
+
+![9F5F88E6C9076EE8BCFEA1188688A72D](https://github.com/user-attachments/assets/0d76fdcb-ae5b-40a7-84e8-7c5b891e80b1)
+
+![2EB6DC9E6BB7C9B62471BCAD57F2227D](https://github.com/user-attachments/assets/792f9d44-7bc7-4d51-8dbd-b5f8bf92ab7b)
+![A6443B27FB8C7347E85446E2663A5D8B](https://github.com/user-attachments/assets/69fe3975-756b-4fe8-a114-d9826fa8502d)
 
 ### 核心功能
 
