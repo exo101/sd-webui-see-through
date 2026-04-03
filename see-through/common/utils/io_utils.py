@@ -519,79 +519,85 @@ def save_psd(savep, img_list, h, w, pad_to_canvas=False, mode='RGBA', img_key='i
     psd_image.save(savep)
 
 def load_part(srcp: str, rotate=False, pad=0, min_width=64, min_sz=12, depth_min=None, depth_max=None):
-    img = Image.open(srcp).convert('RGBA')
-    srcd = osp.dirname(srcp)
-    tag = osp.splitext(osp.basename(srcp))[0]
-    depthp = osp.join(srcd, tag + '_depth.png')
-    tag_infop = osp.join(srcd, tag + '.json')
-    
-    img = np.array(img)
-    p_test = max(img.shape[:2]) // 10
-    mask = img[...,  -1] > 10
-
-    if isinstance(pad, int):
-        pad = [pad] * 4
-
-    if osp.exists(tag_infop):
-        rst = json2dict(tag_infop)
-        depth = np.array(Image.open(depthp).convert('L'))
-        depth = np.array(depth, dtype=np.float32) / 255
-        rst.update({'img': img, 'depth': depth, 'mask': mask, 'tag': tag})
-        return rst
-
-    if np.sum(mask[:-p_test, :-p_test]) > 4:
-        if rotate:
-            img = np.rot90(img, 3)
-            mask = np.rot90(mask, 3, )
-
-        xyxy = cv2.boundingRect(cv2.findNonZero(mask.astype(np.uint8)))
-        xyxy = np.array(xyxy)
-        h, w = xyxy[2:]
-        xyxy[2] += xyxy[0]
-        xyxy[3] += xyxy[1]
-        p = min_width - w
-        if p > 0:
-            if xyxy[0] >= p:
-                xyxy[0] -= p
-            else:
-                xyxy[2] += p
-        p = min_sz - h
-        if p > 0:
-            if xyxy[1] >= p:
-                xyxy[1] -= p
-            else:
-                xyxy[3] += p
-
-        depth = np.array(Image.open(depthp).convert('L'))
-        if rotate:
-            depth = np.rot90(depth, 3)
-
-        x1, y1, x2, y2 = xyxy
-        mask = mask[y1: y2, x1: x2].copy()
-        img = img[y1: y2, x1: x2].copy()
-        depth = depth[y1: y2, x1: x2].copy()
-
-        pt, pb, pl, pr = pad
-        if pt > 0 or pb > 0 or pl > 0 or pr > 0:
-            img = cv2.copyMakeBorder(img, pt, pb, pl, pr, cv2.BORDER_CONSTANT, value=(0, 0, 0, 0))
-            depth = cv2.copyMakeBorder(depth, pt, pb, pl, pr, cv2.BORDER_CONSTANT, value=(255))
-            mask = cv2.copyMakeBorder(mask.astype(np.uint8), pt, pb, pl, pr, cv2.BORDER_CONSTANT, value=(0)) > 0
-            x1 -= pl
-            y1 -= pt
-            x2 += pr
-            y2 += pb
-            xyxy = [x1, y1, x2, y2]
+    if not osp.exists(srcp):
+        return None
+    try:
+        img = Image.open(srcp).convert('RGBA')
+        srcd = osp.dirname(srcp)
+        tag = osp.splitext(osp.basename(srcp))[0]
+        depthp = osp.join(srcd, tag + '_depth.png')
+        tag_infop = osp.join(srcd, tag + '.json')
         
-        # dmin, dmax = partdict['depth_min'], partdict['depth_max']
-        depth = np.array(depth, dtype=np.float32) / 255
-        rst =  {'img': img, 'depth': depth, 'xyxy': xyxy, 'mask': mask, 'tag': tag}
-        if depth_max is not None and depth_min is not None:
-            dmax, dmin = depth_max, depth_min
-            depth = depth * (dmax - dmin) + dmin
-            rst.update({'depth': depth, 'depth_min': dmin, 'depth_max': dmax})
+        img = np.array(img)
+        p_test = max(img.shape[:2]) // 10
+        mask = img[...,  -1] > 10
 
-        return rst
-    else:
+        if isinstance(pad, int):
+            pad = [pad] * 4
+
+        if osp.exists(tag_infop):
+            rst = json2dict(tag_infop)
+            depth = np.array(Image.open(depthp).convert('L'))
+            depth = np.array(depth, dtype=np.float32) / 255
+            rst.update({'img': img, 'depth': depth, 'mask': mask, 'tag': tag})
+            return rst
+
+        if np.sum(mask[:-p_test, :-p_test]) > 4:
+            if rotate:
+                img = np.rot90(img, 3)
+                mask = np.rot90(mask, 3, )
+
+            xyxy = cv2.boundingRect(cv2.findNonZero(mask.astype(np.uint8)))
+            xyxy = np.array(xyxy)
+            h, w = xyxy[2:]
+            xyxy[2] += xyxy[0]
+            xyxy[3] += xyxy[1]
+            p = min_width - w
+            if p > 0:
+                if xyxy[0] >= p:
+                    xyxy[0] -= p
+                else:
+                    xyxy[2] += p
+            p = min_sz - h
+            if p > 0:
+                if xyxy[1] >= p:
+                    xyxy[1] -= p
+                else:
+                    xyxy[3] += p
+
+            depth = np.array(Image.open(depthp).convert('L'))
+            if rotate:
+                depth = np.rot90(depth, 3)
+
+            x1, y1, x2, y2 = xyxy
+            mask = mask[y1: y2, x1: x2].copy()
+            img = img[y1: y2, x1: x2].copy()
+            depth = depth[y1: y2, x1: x2].copy()
+
+            pt, pb, pl, pr = pad
+            if pt > 0 or pb > 0 or pl > 0 or pr > 0:
+                img = cv2.copyMakeBorder(img, pt, pb, pl, pr, cv2.BORDER_CONSTANT, value=(0, 0, 0, 0))
+                depth = cv2.copyMakeBorder(depth, pt, pb, pl, pr, cv2.BORDER_CONSTANT, value=(255))
+                mask = cv2.copyMakeBorder(mask.astype(np.uint8), pt, pb, pl, pr, cv2.BORDER_CONSTANT, value=(0)) > 0
+                x1 -= pl
+                y1 -= pt
+                x2 += pr
+                y2 += pb
+                xyxy = [x1, y1, x2, y2]
+            
+            # dmin, dmax = partdict['depth_min'], partdict['depth_max']
+            depth = np.array(depth, dtype=np.float32) / 255
+            rst =  {'img': img, 'depth': depth, 'xyxy': xyxy, 'mask': mask, 'tag': tag}
+            if depth_max is not None and depth_min is not None:
+                dmax, dmin = depth_max, depth_min
+                depth = depth * (dmax - dmin) + dmin
+                rst.update({'depth': depth, 'depth_min': dmin, 'depth_max': dmax})
+
+            return rst
+        else:
+            return None
+    except Exception as e:
+        print(f"Error loading part {srcp}: {e}")
         return None
 
 def load_img_depth(srcd, src_info, pad=5, try_crop=False, rotate=False):
@@ -707,13 +713,13 @@ def load_parts(srcp, rotate=False, pad=0, min_width=64):
             
         #     dmin, dmax = partdict['depth_min'], partdict['depth_max']
         #     depth = np.array(depth, dtype=np.float32) / 255 * (dmax - dmin) + dmin
-            p = load_part(osp.join(srcp, tag + '.png'), rotate=rotate, pad=pad, min_width=min_width, min_sz=min_sz)
-            if p is not None:
-                tag2pd[tag] = p
-                tag2pd[tag]['part_id'] = part_id
-                part_dict_list.append(tag2pd[tag])
-                part_id += 1
-            
+        p = load_part(osp.join(srcp, tag + '.png'), rotate=rotate, pad=pad, min_width=min_width, min_sz=min_sz)
+        if p is not None:
+            tag2pd[tag] = p
+            tag2pd[tag]['part_id'] = part_id
+            part_dict_list.append(tag2pd[tag])
+            part_id += 1
+        
 
     return fullpage, infos, part_dict_list
 
