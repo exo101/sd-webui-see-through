@@ -20,14 +20,17 @@ from PIL import Image
 VALID_BODY_PARTS_V2 = [
     'hair', 'headwear', 'face', 'eyes', 'eyewear', 'ears', 'earwear', 'nose', 'mouth', 
     'neck', 'neckwear', 'topwear', 'handwear', 'bottomwear', 'legwear', 'footwear', 
-    'tail', 'wings', 'objects'
+    'tail', 'wings', 'objects',
+    'accessories', 'jewelry', 'bag', 'weapon', 'shield', 'instrument',
+    'headphone', 'glasses', 'mask', 'scarf', 'belt', 'gloves',
+    'boots', 'hat', 'crown', 'cape', 'armor'
 ]
 
 
 layerdiff_pipeline: KDiffusionStableDiffusionXLPipeline = None
 def apply_layerdiff(
     imgp: str, pretrained: str, num_inference_steps=30, seed=0, save_dir='workspace/layerdiff_output', target_tag_list=VALID_BODY_PARTS_V2, 
-    resolution=1280, vae_ckpt=None, unet_ckpt=None):
+    resolution=1280, vae_ckpt=None, unet_ckpt=None, cache_tag_embeds=False, group_offload=False):
     
     global layerdiff_pipeline
     if layerdiff_pipeline is None:
@@ -80,6 +83,26 @@ def apply_layerdiff(
         layerdiff_pipeline.text_encoder.to(dtype=torch.bfloat16, device='cuda')
         layerdiff_pipeline.text_encoder_2.to(dtype=torch.bfloat16, device='cuda')
 
+        # 内存优化：缓存文本嵌入
+        if cache_tag_embeds:
+            print("启用文本嵌入缓存...")
+            layerdiff_pipeline.cache_tag_embeds = True
+            # 卸载文本编码器以节省显存
+            layerdiff_pipeline.text_encoder.to('cpu')
+            layerdiff_pipeline.text_encoder_2.to('cpu')
+            torch.cuda.empty_cache()
+            print("文本编码器已卸载到CPU，节省约2GB显存")
+
+        # 内存优化：组卸载
+        if group_offload:
+            print("启用组卸载...")
+            # 将模型组件卸载到CPU，只在需要时加载到GPU
+            layerdiff_pipeline.vae.to('cpu')
+            layerdiff_pipeline.trans_vae.to('cpu')
+            layerdiff_pipeline.unet.to('cpu')
+            torch.cuda.empty_cache()
+            print("模型组件已卸载到CPU，显存使用降至~0.2GB（速度将降低2-3倍）")
+
     pipeline = layerdiff_pipeline
 
     saved = osp.join(save_dir, osp.splitext(osp.basename(imgp))[0])
@@ -90,6 +113,13 @@ def apply_layerdiff(
     Image.fromarray(fullpage).save(osp.join(saved, 'src_img.png'))
 
     rng = torch.Generator(device=pipeline.unet.device).manual_seed(seed)
+
+    # 如果启用了组卸载，在处理前将模型加载到GPU
+    if group_offload:
+        print("加载模型到GPU进行处理...")
+        pipeline.vae.to('cuda')
+        pipeline.trans_vae.to('cuda')
+        pipeline.unet.to('cuda')
 
     tag_version = pipeline.unet.get_tag_version()
     if tag_version == 'v2':
@@ -188,6 +218,23 @@ def apply_layerdiff(
 
     else:
         raise
+    
+    # 处理完成后释放模型
+    del layerdiff_pipeline
+    layerdiff_pipeline = None
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
+    print("LayerDiff模型已释放，显存已清理")
+
+    # 如果启用了组卸载，处理完成后卸载模型
+    if group_offload:
+        print("卸载模型回CPU...")
+        if 'pipeline' in locals():
+            pipeline.vae.to('cpu')
+            pipeline.trans_vae.to('cpu')
+            pipeline.unet.to('cpu')
+        torch.cuda.empty_cache()
+        print("模型已卸载回CPU")
 
 
 
@@ -219,6 +266,9 @@ def apply_marigold(srcp, pretrained: str, num_inference_steps=30, seed=0, save_d
             caption_list.append(tag)
             tag_arr = np.array(Image.open(tagp))
             tag_arr[..., -1][tag_arr[..., -1] < 15] = 0
+            # 调整图像大小以匹配当前分辨率
+            from PIL import Image as PILImage
+            tag_arr = np.array(PILImage.fromarray(tag_arr).resize((resolution, resolution), PILImage.LANCZOS))
             # blended_alpha += tag_arr[..., -1].astype(np.float32) / 255
             img_list.append(tag_arr)
         else:
@@ -308,6 +358,13 @@ def apply_marigold(srcp, pretrained: str, num_inference_steps=30, seed=0, save_d
 
     dict2json(info, infop)
     Image.fromarray(blended).save(osp.join(saved, 'reconstruction.png'))
+    
+    # 处理完成后释放模型
+    del marigold_pipeline
+    marigold_pipeline = None
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
+    print("Marigold模型已释放，显存已清理")
 
 
 def label_lr_split(labels, stats, id1, id2):
@@ -402,11 +459,11 @@ def part_lr_split(tag, part_info):
 
         img, depth, xyxy, depth_median = process_cuts(part_info['img'], part_info['depth'], part_info['xyxy'], statsl, mask=arml_mask)
         arml_mask = arml_mask[xyxy[1]: xyxy[3], xyxy[0]: xyxy[2]]
-        tag2pinfo[f'{tag}-r'] = {'img': img, 'xyxy': xyxy, 'depth': depth, 'depth_median': depth_median, 'tag': f'{tag}-r'}
+        tag2pinfo[f'{tag}l'] = {'img': img, 'xyxy': xyxy, 'depth': depth, 'depth_median': depth_median, 'tag': f'{tag}l'}
 
         img, depth, xyxy, depth_median = process_cuts(part_info['img'], part_info['depth'], part_info['xyxy'], statsr, mask=armr_mask)
         armr_mask = armr_mask[xyxy[1]: xyxy[3], xyxy[0]: xyxy[2]]
-        tag2pinfo[f'{tag}-l'] = {'img': img, 'xyxy': xyxy, 'depth': depth, 'depth_median': depth_median, 'tag': f'{tag}-l'}
+        tag2pinfo[f'{tag}r'] = {'img': img, 'xyxy': xyxy, 'depth': depth, 'depth_median': depth_median, 'tag': f'{tag}r'}
 
     else:
         tag2pinfo[tag] = part_info
@@ -419,22 +476,28 @@ def tag_lr_split(tag: str, tag2pinfo):
         tag2pinfo.update(part_lr_split(tag, part_info))
 
 
-def further_extr(srcd: str, rotate=True, save_to_psd=False, tblr_split=True):
-
-
+def further_extr(srcd: str, rotate=True, save_to_psd=False, tblr_split=True, batch_size=4):
+    """
+    进一步处理图层分离结果
+    
+    Args:
+        srcd: 源目录
+        rotate: 是否旋转
+        save_to_psd: 是否保存为PSD文件
+        tblr_split: 是否进行左右分离
+        batch_size: 批处理大小，用于控制内存使用
+    """
     saved = osp.join(srcd, 'optimized')
-    # infos = json2dict(osp.join(srcd, 'info.json'))
     os.makedirs(saved, exist_ok=True)
 
     fullpage, infos, part_dict_list = load_parts(srcd, rotate=rotate)
-
-    # optim_depth(part_dict_list, fullpage)
 
     tag2pinfo = {}
     for pinfo in part_dict_list:
         tag = pinfo['tag']
         tag2pinfo[tag] = pinfo
 
+    # 处理眼睛分离
     if 'eyes' in tag2pinfo:
         part_info = tag2pinfo.pop('eyes')
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
@@ -458,37 +521,48 @@ def further_extr(srcd: str, rotate=True, save_to_psd=False, tblr_split=True):
         else:
             tag2pinfo['eyes'] = part_info
 
-
+    # 处理左右分离
     if tblr_split:
+        # 手部左右分离
         tag_lr_split('handwear', tag2pinfo)
-
+        
+        # 手套左右分离
+        tag_lr_split('gloves', tag2pinfo)
+        
+        # 鞋子左右分离
+        tag_lr_split('boots', tag2pinfo)
+        tag_lr_split('footwear', tag2pinfo)
+        
+        # 耳朵左右分离
+        tag_lr_split('ears', tag2pinfo)
+        tag_lr_split('earwear', tag2pinfo)
+        
+        # 眼睛相关部位左右分离
         eyetags_v3 = ['eyewhite', 'irides', 'eyelash', 'eyebrow']
         for tag in eyetags_v3:
             tag_lr_split(tag, tag2pinfo)
+        
+        # 饰品左右分离
+        tag_lr_split('jewelry', tag2pinfo)
+        tag_lr_split('accessories', tag2pinfo)
 
-        tag_lr_split('ears', tag2pinfo)
-
-    # if 'headwear' in tag2pinfo:
-    #     part_info = tag2pinfo.pop('headwear')
-    #     tag2pinfo['hair']['img'] = img_alpha_blending([tag2pinfo['hair'], part_info], xyxy=tag2pinfo['hair']['xyxy'], premultiplied=False)
-    # if 'headwear' in tag2pinfo:
-    #     part_info = tag2pinfo.pop('headwear')
-    #     tag2pinfo['hair']['img'] = img_alpha_blending([tag2pinfo['hair'], part_info], xyxy=tag2pinfo['hair']['xyxy'], premultiplied=False)
-
-    # if 'footwear' in tag2pinfo:
-    #     part_info = tag2pinfo.pop('footwear')
-    #     tag2pinfo['legwear']['img'] = img_alpha_blending([tag2pinfo['legwear'], part_info], xyxy=tag2pinfo['legwear']['xyxy'], premultiplied=False)
-
+        # 优化的头发分割
         if 'hair' in tag2pinfo:
             part_info = tag2pinfo.pop('hair')
             parts = cluster_inpaint_part(**part_info)
             parts.sort(key=lambda x: x['depth_median'])
-            tag2pinfo['hairf'] = parts[0]
-            tag2pinfo['hairb'] = parts[1]
+            # 分为前发、后发、左发、右发
+            if len(parts) >= 2:
+                tag2pinfo['hairf'] = parts[0]  # 前发
+                tag2pinfo['hairb'] = parts[1]  # 后发
+            if len(parts) >= 4:
+                tag2pinfo['hairl'] = parts[2]  # 左发
+                tag2pinfo['hairr'] = parts[3]  # 右发
+            elif len(parts) >= 3:
+                tag2pinfo['hairl'] = parts[2]  # 左发
+                tag2pinfo['hairr'] = parts[2]  # 右发（复用）
 
-    # if 'footwear' in tag2pinfo:
-    #     tag2pinfo.pop('footwear')
-
+    # 处理鼻子和嘴巴
     if 'nose' in tag2pinfo:
         xyxy = tag2pinfo['nose']['xyxy']
         tag2pinfo['nose']['img'][..., :3] = fullpage[xyxy[1]: xyxy[3], xyxy[0]: xyxy[2], :3]
@@ -497,30 +571,127 @@ def further_extr(srcd: str, rotate=True, save_to_psd=False, tblr_split=True):
         xyxy = tag2pinfo['mouth']['xyxy']
         tag2pinfo['mouth']['img'][..., :3] = fullpage[xyxy[1]: xyxy[3], xyxy[0]: xyxy[2], :3]
 
+    # 自定义图层处理 - 饰品和配饰
+    accessories_to_process = ['jewelry', 'accessories', 'headphone', 'glasses', 'mask', 'scarf', 'belt']
+    for acc_tag in accessories_to_process:
+        if acc_tag in tag2pinfo:
+            # 确保饰品图层有正确的透明度
+            part_info = tag2pinfo[acc_tag]
+            if 'img' in part_info:
+                # 增强透明度，使饰品更清晰
+                alpha = part_info['img'][..., 3]
+                alpha = np.clip(alpha * 1.2, 0, 255).astype(np.uint8)
+                part_info['img'][..., 3] = alpha
+
+    # 自定义图层处理 - 武器和装备
+    equipment_to_process = ['weapon', 'shield', 'armor', 'bag', 'instrument']
+    for eq_tag in equipment_to_process:
+        if eq_tag in tag2pinfo:
+            part_info = tag2pinfo[eq_tag]
+            if 'img' in part_info:
+                # 确保装备图层有正确的深度和透明度
+                alpha = part_info['img'][..., 3]
+                # 对于装备，保持较高的透明度
+                alpha = np.clip(alpha * 1.1, 0, 255).astype(np.uint8)
+                part_info['img'][..., 3] = alpha
+
+    # 自定义图层处理 - 头部装饰
+    head_decorations = ['headwear', 'hat', 'crown', 'cape']
+    for hd_tag in head_decorations:
+        if hd_tag in tag2pinfo:
+            part_info = tag2pinfo[hd_tag]
+            if 'img' in part_info:
+                # 头部装饰通常在最前面，确保透明度正确
+                alpha = part_info['img'][..., 3]
+                alpha = np.clip(alpha * 1.15, 0, 255).astype(np.uint8)
+                part_info['img'][..., 3] = alpha
+
+    # 批处理图层
     part_dict_list = []
     save_dir = osp.dirname(saved)
     psd_savep = osp.join(osp.dirname(save_dir), osp.basename(save_dir) + '.psd')
 
-    for t in tag2pinfo:
-        if t not in tag2pinfo:
-            print(f'{t} is not valid')
-            continue
-        part_dict = tag2pinfo[t]
-        part_dict = save_part(t, saved, part_dict, save_to_disk=not save_to_psd)
-        if save_to_psd:
-            part_dict_list.append(part_dict)
+    # 按批次处理
+    tags = list(tag2pinfo.keys())
+    for i in range(0, len(tags), batch_size):
+        batch_tags = tags[i:i+batch_size]
+        for t in batch_tags:
+            if t not in tag2pinfo:
+                print(f'{t} is not valid')
+                continue
+            part_dict = tag2pinfo[t]
+            part_dict = save_part(t, saved, part_dict, save_to_disk=not save_to_psd)
+            if save_to_psd:
+                part_dict_list.append(part_dict)
+        
+        # 清理内存
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
+    # 调整深度值 - 确保图层顺序正确
+    # 面部相关深度调整
     if 'face' in tag2pinfo:
+        face_depth = tag2pinfo['face'].get('depth_median', 0)
         for t in ['nose', 'mouth', 'eyes']:
             if t in tag2pinfo:
-                if tag2pinfo[t]['depth_median'] > tag2pinfo['face']['depth_median']:
-                    tag2pinfo[t]['depth_median'] = tag2pinfo['face']['depth_median'] - 0.001
+                if tag2pinfo[t].get('depth_median', 0) > face_depth:
+                    tag2pinfo[t]['depth_median'] = face_depth - 0.001
         for t in ['earr', 'earl', 'ears']:
             if t in tag2pinfo:
-                tag2pinfo[t]['depth_median'] = tag2pinfo['face']['depth_median'] + 0.001
+                tag2pinfo[t]['depth_median'] = face_depth + 0.001
 
-    # if 'hairb' in tag2pinfo:
-    #     tag2pinfo['hairb']['depth_median'] = 1.
+    # 头发深度调整
+    if 'hairf' in tag2pinfo and 'hairb' in tag2pinfo:
+        hairf_depth = tag2pinfo['hairf'].get('depth_median', 0)
+        hairb_depth = tag2pinfo['hairb'].get('depth_median', 0)
+        # 前发应该在脸部前面
+        if 'face' in tag2pinfo:
+            face_depth = tag2pinfo['face'].get('depth_median', 0)
+            tag2pinfo['hairf']['depth_median'] = face_depth - 0.002
+            tag2pinfo['hairb']['depth_median'] = face_depth + 0.001
+        # 左右发深度调整
+        if 'hairl' in tag2pinfo:
+            tag2pinfo['hairl']['depth_median'] = hairf_depth - 0.001
+        if 'hairr' in tag2pinfo:
+            tag2pinfo['hairr']['depth_median'] = hairf_depth - 0.001
+
+    # 饰品和装备深度调整
+    accessories_depth_order = {
+        'crown': -0.005,      # 皇冠在最前面
+        'hat': -0.004,         # 帽子
+        'headwear': -0.003,     # 头饰
+        'headphone': -0.002,     # 耳机
+        'glasses': -0.001,       # 眼镜
+        'jewelry': 0.001,        # 首饰
+        'accessories': 0.002,     # 配饰
+        'mask': 0.003,          # 面具
+        'scarf': 0.004,         # 围巾
+        'belt': 0.005,          # 皮带
+        'weapon': 0.006,         # 武器
+        'shield': 0.007,         # 盾牌
+        'armor': 0.008,         # 护甲
+        'bag': 0.009,           # 背包
+        'instrument': 0.010      # 乐器
+    }
+    
+    if 'face' in tag2pinfo:
+        base_depth = tag2pinfo['face'].get('depth_median', 0)
+        for tag, offset in accessories_depth_order.items():
+            if tag in tag2pinfo:
+                tag2pinfo[tag]['depth_median'] = base_depth + offset
+
+    # 手部和脚部深度调整
+    if 'handwear' in tag2pinfo:
+        hand_depth = tag2pinfo['handwear'].get('depth_median', 0)
+        if 'gloves' in tag2pinfo:
+            tag2pinfo['gloves']['depth_median'] = hand_depth - 0.001
+    
+    if 'footwear' in tag2pinfo:
+        foot_depth = tag2pinfo['footwear'].get('depth_median', 0)
+        if 'boots' in tag2pinfo:
+            tag2pinfo['boots']['depth_median'] = foot_depth - 0.001
 
     frame_size = fullpage.shape[:2]
 
@@ -529,6 +700,15 @@ def further_extr(srcd: str, rotate=True, save_to_psd=False, tblr_split=True):
         print(f'psd saved to {psd_savep}')
     else:
         dict2json({'parts': tag2pinfo, 'frame_size': frame_size}, osp.join(saved, 'info.json'))
+    
+    # 清理内存
+    del fullpage, infos, part_dict_list, tag2pinfo
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+    print("进一步处理完成，内存已清理")
 
 
 def dump_parts_psd(tag2pinfo, frame_size, psd_savep, part_dict_list=None):
