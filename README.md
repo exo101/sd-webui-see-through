@@ -2,112 +2,212 @@
 
 ## 功能介绍
 
-See-Through是一个基于AI的动漫图像分解插件，可以将单张动漫图像转换为多层2.5D模型。这是基于[See-Through: Single-image Layer Decomposition for Anime Characters](https://github.com/shitagaki-lab/see-through)项目的研究成果。
+See-Through 是一个基于 AI 的动漫图像分解插件，可以将单张动漫图像转换为多层 2.5D 模型。这是基于 [See-Through: Single-image Layer Decomposition for Anime Characters](https://github.com/shitagaki-lab/see-through) 项目的研究成果。
 
 ### 核心功能
 
-- **图像分解** - 将单张动漫图像分解为最多23个语义层
+- **图像分解** - 将单张动漫图像分解为最多 31 个语义层
 - **LayerDiff 3D** - 基于扩散的透明层生成
-- **Marigold深度估计** - 专为动漫优化的伪深度估计
-- **SAM分割** - 语义身体部分分割
-- **PSD输出** - 导出为可编辑的Photoshop文件
+- **Marigold 深度估计** - 专为动漫优化的伪深度估计
+- **SAM 分割** - 语义身体部分分割
+- **PSD 输出** - 导出为可编辑的 Photoshop 文件
+- **自动依赖安装** - WebUI 启动时自动安装缺失的依赖
+- **内存优化** - 支持缓存文本嵌入和组卸载，降低显存使用
+- **图层分割** - 支持左右分离、头发分割、饰品和装备处理
+- **批处理优化** - 支持可调节的批处理大小，优化显存使用
 
 ### 分解的图层包括
 
-头发、脸部、眼睛、服装、配饰等最多23个语义层，每个图层都经过完整的修复和排序。
-显存占用尺寸越大占用越大，5070tiRTX，尺寸1280X1280处理时长为20分钟，1024x1024处理时长为10分钟左右
+**基础图层**：
+- 头发（前发、后发、左发、右发）
+- 头部、面部、鼻子、嘴巴
+- 眼睛、眼白、虹膜、睫毛、眉毛
+- 耳朵、耳饰
+- 颈部、颈饰
 
-![2E9DE36FFC34C1CD4C216A20493B08DD](https://github.com/user-attachments/assets/e982537b-41b9-4d8f-9632-fc2382d62cf0)
-![9F5F88E6C9076EE8BCFEA1188688A72D](https://github.com/user-attachments/assets/881acaa8-2aef-41e1-bfe3-eff1c8c4999e)
-![A6443B27FB8C7347E85446E2663A5D8B](https://github.com/user-attachments/assets/6270793f-1199-4983-8edc-976bae888066)
-![2EB6DC9E6BB7C9B62471BCAD57F2227D](https://github.com/user-attachments/assets/0a789f08-e9da-4a9f-9063-339fd514707e)
+**服装图层**：
+- 上装、下装、腿部服装
+- 手部服装、手套
+- 脚部服装、鞋子
 
+**饰品和装备**：
+- 饰品、首饰
+- 头饰、帽子、皇冠、披风
+- 耳机、眼镜、面具、围巾、腰带
+- 武器、盾牌、护甲、背包、乐器
+
+**其他**：
+- 尾巴、翅膀、物品
 
 ## 安装方法
-1. 使用sd-webui-forge-neo-v2
-2. 插件在WebUI的extensions文件夹中
-3. 目录 webui\extensions\sd-webui-see-through\see-through/models
-       
-- seethroughv0.0.2_layerdiff3d     # 透明图层模型
-- seethroughv0.0.1_marigold，     #  深度分析模型
+
+### 自动安装
+
+1. 将插件目录复制到 WebUI 的 extensions 文件夹中
+2. 重启 WebUI
+3. 插件会自动检测并安装缺失的依赖项（psd-tools、pycocotools）
+
+### 手动安装依赖
+
+如果自动安装失败，可以手动安装依赖项：
+
+```bash
+python -m pip install psd-tools
+python -m pip install pycocotools
+```
 
 ## 使用方法
 
 ### 基本使用
 
-1. 在txt2img或img2img界面中找到"See-Through"折叠面板
-2. 勾选"启用See-Through"选项
-3. 选择输入模式：
-   - **使用生成的图像** - 处理WebUI生成的图像
-   - **上传图像** - 上传本地图像进行处理
+1. 在 txt2img 或 img2img 界面中找到 "See-Through 图层分离为 PSD 文件" 折叠面板
+2. 选择输入模式：
+   - **上传图像** - 上传本地图像进行处理（推荐）
    - **指定图像路径** - 输入图像文件路径
-4. 配置处理选项：
-   - 保存为PSD文件
-   - 保存深度图
-   - 保存分割掩码
-5. 点击"开始处理"按钮
+3. 配置处理选项：
+   - 保存为 PSD 文件
+   - 处理分辨率（512-1280）
+   - 批处理大小（1-8）
+4. 配置图层分割选项：
+   - 启用左右分离
+   - 启用头发分割
+   - 处理饰品图层
+   - 处理装备图层
+5. 配置内存优化选项：
+   - 缓存文本嵌入（节省约 2GB 显存）
+   - 启用组卸载（将显存降至 ~0.2GB，但速度降低 2-3 倍）
+6. 点击"处理"按钮
 
 ### 高级选项
 
-- **使用LayerDiff 3D** - 启用基于扩散的透明层生成
-- **使用Marigold深度估计** - 启用深度估计
-- **使用SAM分割** - 启用语义分割
+- **使用 LayerDiff 3D** - 启用基于扩散的透明层生成
+- **使用 Marigold 深度估计** - 启用深度估计
+- **使用 SAM 分割** - 启用语义分割
 
 ### 模型下载
 
 - 模型文件会保存在 `extensions\sd-webui-see-through\see-through\models` 目录中
-- seethroughv0.0.1_marigold
-- seethroughv0.0.2_layerdiff3d
-
+- seethroughv0.0.1_marigold - 深度估计模型
+- seethroughv0.0.2_layerdiff3d - 图层分解模型
 
 ### 输出文件
 
-处理完成后，输出文件保存在 `extensions\sd-webui-see-through\see-through\workspace\layerdiff_output` 目录中，包括：
+处理完成后，输出文件保存在 `extensions\sd-webui-see-through\see-through\workspace\layerdiff_output` 目录中，每个处理任务都有独立的输出目录：
 
-- 分层的PSD文件
+- 分层的 PSD 文件（如果启用）
+- 各个图层的 PNG 文件
 - 深度图（如果启用）
 - 分割掩码（如果启用）
 
+输出目录命名格式：`uploaded_image_{timestamp}/`，确保多次处理不会相互覆盖。
+
+## 内存优化指南
+
+### 对于大多数用户（12GB+ 显存）
+- 默认设置运行良好
+- 已启用缓存文本嵌入，节省了 ~2GB 显存，且速度完全不受影响
+- 不需要其他改动
+
+### 对于低显存用户（8-12 GB）
+请按顺序尝试以下设置，从对速度的影响从小到大：
+
+1. **缓存文本嵌入**（默认，已启用）- 缓存文本嵌入并卸载文本编码器，节省约 2GB 显存且无速度损失
+2. **降低处理分辨率** - 以较低分辨率运行深度估计，然后再放大回来。以最小的质量损失节省显存
+3. **启用组卸载** - 最后手段。根据需要调整各个模型块的 GPU 开关，将峰值分配的显存降至 ~0.2GB，但由于频繁的 CPU↔GPU 传输，速度降低了 2-3 倍
+
+### 显存使用对比
+
+| 配置 | LayerDiff 峰值 | Marigold 峰值 | 总时间 | 最小 VRAM |
+|------|---------------|--------------|--------|----------|
+| 默认（1280 分辨率） | 7.95 GB / 13.69 GB | 2.49 GB | 138 s | ~16 GB |
+| 启用缓存文本嵌入 | ~5.95 GB / ~11.69 GB | 2.49 GB | 138 s | ~14 GB |
+| 降低深度分辨率（720） | 7.95 GB / 13.69 GB | ~1.49 GB | 138 s | ~15 GB |
+| 启用组卸载 | 0.21 GB / 7.31 GB | 0.07 GB | 385 s | ~8 GB |
+
+## 批处理大小选择
+
+### 显存配置与批处理大小对应关系
+
+- **8GB 显存**（如 RTX 3060、RTX 2070）
+  - 推荐批处理大小：1-2
+  - 分辨率建议：512-768
+  - 说明：显存较小，需要保守设置
+
+- **12GB 显存**（如 RTX 3060 Ti、RTX 3080）
+  - 推荐批处理大小：2-3
+  - 分辨率建议：768-1024
+  - 说明：中等配置，可以适当提高批处理大小
+
+- **16GB 显存**（如 RTX 4060 Ti、RTX 4080）
+  - 推荐批处理大小：3-4
+  - 分辨率建议：1024-1280
+  - 说明：较好的配置，可以使用默认值
+
+- **24GB 显存**（如 RTX 3090、RTX 4090）
+  - 推荐批处理大小：4-6
+  - 分辨率建议：1280-1536
+  - 说明：高端配置，可以使用较大的批处理大小
+
+### 选择建议
+
+- **保守选择**（优先保证稳定性）：批处理大小 1-2
+- **平衡选择**（推荐）：批处理大小 3-4
+- **激进选择**（追求速度）：批处理大小 5-8
+
+## 适用场景
+
+### 最佳场景
+- 动漫人物图像
+- 写实人物图像
+- 人物为主的插画
+- 包含人物的电商海报
+
+### 有限支持
+- 动物图像：可能只能获得粗略的分割结果
+- 电商海报：可以识别海报中的人物部分，但对商品、背景元素的识别效果有限
+- 插画：适合处理人物为主的插画，对风景/物品插画效果有限
+
+### 不支持
+- 纯风景场景（山石、天空、大地、海面等）
+- 复杂场景
+- 大量文字的图像
+
 ## 依赖项
 
-# See-Through Plugin Dependencies
-# 基础依赖
-numpy
-opencv-python
-Pillow
-torchvision
-transformers
+### 基础依赖
+- numpy
+- opencv-python
+- Pillow
+- torchvision
+- transformers
 
-# See-Through核心依赖
-segment-anything
-groundingdino-py
-diffusers
-accelerate
-omegaconf
-einops
-pytorch-lightning
+### See-Through 核心依赖
+- segment-anything
+- groundingdino-py
+- diffusers
+- accelerate
+- omegaconf
+- einops
+- pytorch-lightning
 
-# 图像处理
-opencv-contrib-python
-scikit-image
-imageio
+### 图像处理
+- opencv-contrib-python
+- scikit-image
+- imageio
 
-# COCO数据集工具
-pycocotools
+### COCO 数据集工具
+- pycocotools
 
-# PSD文件处理
-psd-tools
-
-# 可选依赖（根据需要安装）
-# detectron2  # 用于身体解析
-# mmcv       # 用于动漫实例分割
-# mmdet      # 用于动漫实例分割
+### PSD 文件处理
+- psd-tools
 
 ## 注意事项
 
 - 处理时间会根据图像大小和硬件性能而变化
-- 建议使用GPU以获得最佳性能
-- 输出目录需要在See-Through项目目录中
+- 建议使用 GPU 以获得最佳性能
+- 每次处理都会生成唯一的输出目录，不会覆盖之前的结果
+- 插件会在 WebUI 启动时自动安装缺失的依赖项
+- 处理日志会显示在 WebUI 后台日志中
 
 ## 项目参考
 
@@ -119,16 +219,29 @@ psd-tools
 ## 常见问题
 
 **Q: 处理失败怎么办？**
-A: 检查See-Through项目是否正确安装，确保所有依赖项都已安装。
+A: 检查 See-Through 项目是否正确安装，确保所有依赖项都已安装。查看 WebUI 后台日志获取详细错误信息。
 
 **Q: 可以批量处理图像吗？**
-A: 目前插件支持单张图像处理，如需批量处理，请直接使用See-Through项目的命令行工具。
+A: 目前插件支持单张图像处理，每次处理都会生成唯一的输出目录。如需批量处理，请直接使用 See-Through 项目的命令行工具。
 
-**Q: 输出的PSD文件如何使用？**
-A: 可以在Photoshop或其他支持PSD的软件中打开，每个图层都是独立的，可以进行编辑和动画制作。
+**Q: 输出的 PSD 文件如何使用？**
+A: 可以在 Photoshop 或其他支持 PSD 的软件中打开，每个图层都是独立的，可以进行编辑和动画制作。
+
+**Q: 显存不足怎么办？**
+A: 尝试降低批处理大小、降低处理分辨率、启用缓存文本嵌入，或启用组卸载功能。
+
+**Q: 左右分离功能不起作用？**
+A: 确保在插件 UI 中勾选了"启用左右分离"选项。某些图像可能不包含可分离的部位。
+
+**Q: 处理结果会被覆盖吗？**
+A: 不会。每次处理都会生成唯一的输出目录，基于时间戳命名，确保不会相互覆盖。
+
+**Q: 插件支持动物或风景图像吗？**
+A: 插件主要针对人物图像设计，对动物和风景场景的支持有限。建议主要用于处理人物相关的图像。
 
 ## 技术支持
 
 如有问题，请参考：
-- See-Through项目的GitHub仓库
-- WebUI的扩展文档
+- See-Through 项目的 GitHub 仓库
+- WebUI 的扩展文档
+- 查看 WebUI 后台日志获取详细错误信息
