@@ -106,11 +106,31 @@ class SeeThroughScript(scripts.Script):
                         maximum=1536,
                         value=1024,
                         step=64,
-                        info="较低的分辨率可减少显存占用"
+                        info="较低的分辨率可减少显存占用，提高处理速度"
+                    )
+                    batch_size = gr.Slider(
+                        label="批处理大小",
+                        minimum=1,
+                        maximum=8,
+                        value=4,
+                        step=1,
+                        info="较小的批处理大小可减少显存占用"
                     )
                     use_layerdiff3d = gr.Checkbox(label="使用LayerDiff 3D", value=True)
                     use_marigold = gr.Checkbox(label="使用Marigold深度估计", value=True)
                     use_sam = gr.Checkbox(label="使用SAM分割", value=True)
+                    
+                with gr.Column():
+                    gr.Markdown("### 图层分割选项")
+                    enable_lr_split = gr.Checkbox(label="启用左右分离", value=True, info="将手、脚、耳等部位分为左右两部分")
+                    enable_hair_split = gr.Checkbox(label="启用头发分割", value=True, info="将头发分为前发、后发、左发、右发")
+                    enable_accessories = gr.Checkbox(label="处理饰品图层", value=True, info="优化饰品和配饰的透明度")
+                    enable_equipment = gr.Checkbox(label="处理装备图层", value=True, info="优化武器、护甲等装备的显示")
+                    
+                with gr.Column():
+                    gr.Markdown("### 内存优化选项")
+                    cache_tag_embeds = gr.Checkbox(label="缓存文本嵌入", value=True, info="节省约2GB显存且无速度损失")
+                    group_offload = gr.Checkbox(label="启用组卸载", value=False, info="将显存降至~0.2GB，但速度降低2-3倍")
             
             with gr.Row(visible=False) as output_options:
                 with gr.Column():
@@ -127,6 +147,8 @@ class SeeThroughScript(scripts.Script):
             def toggle_options(enabled):
                 return gr.update(visible=enabled), gr.update(visible=enabled)
             
+
+
             def open_output_dir():
                 output_dir = os.path.join(os.path.dirname(__file__), "..", "see-through", "workspace", "layerdiff_output")
                 output_dir = os.path.abspath(output_dir)
@@ -156,8 +178,10 @@ class SeeThroughScript(scripts.Script):
                 outputs=[output_info]
             )
             
-            def process_image(mode, uploaded_image, path, save_psd, resolution, 
-                            use_layerdiff, use_marigold_depth, use_sam_seg):
+            def process_image(mode, uploaded_image, path, save_psd, resolution, batch_size, 
+                            use_layerdiff, use_marigold_depth, use_sam_seg,
+                            enable_lr_split, enable_hair_split, enable_accessories, enable_equipment,
+                            cache_tag_embeds, group_offload):
                 input_image = None
                 
                 try:
@@ -178,8 +202,11 @@ class SeeThroughScript(scripts.Script):
                         if not uploaded_image:
                             logger.error("错误：请上传图像")
                             return "错误：请上传图像"
-                        # 保存上传的图像
-                        temp_path = os.path.join(temp_dir, "uploaded_image.png")
+                        # 生成唯一的文件名，避免覆盖之前的图像
+                        import time
+                        timestamp = int(time.time() * 1000)
+                        unique_filename = f"uploaded_image_{timestamp}.png"
+                        temp_path = os.path.join(temp_dir, unique_filename)
                         uploaded_image.save(temp_path)
                         input_image = temp_path
                         logger.info(f"上传图像已保存: {temp_path}")
@@ -209,13 +236,26 @@ class SeeThroughScript(scripts.Script):
                         sys.executable,
                         os.path.join(see_through_path, "inference", "scripts", "inference_psd.py"),
                         "--srcp", input_image,
-                        "--resolution", str(resolution)
+                        "--resolution", str(resolution),
+                        "--batch_size", str(batch_size)
                     ]
                     
                     if save_psd:
                         cmd.append("--save_to_psd")
                     
+                    # 添加图层分割选项
+                    if enable_lr_split:
+                        cmd.append("--tblr_split")
+                    
+                    # 添加内存优化选项
+                    if cache_tag_embeds:
+                        cmd.append("--cache_tag_embeds")
+                    if group_offload:
+                        cmd.append("--group_offload")
+                    
                     logger.info(f"执行命令: {' '.join(cmd)}")
+                    logger.info(f"图层分割选项 - 左右分离: {enable_lr_split}, 头发分割: {enable_hair_split}, 饰品处理: {enable_accessories}, 装备处理: {enable_equipment}")
+                    logger.info(f"内存优化选项 - 缓存文本嵌入: {cache_tag_embeds}, 组卸载: {group_offload}")
                     logger.info("开始执行处理脚本...")
                     
                     # 执行处理 - 实时输出日志
@@ -264,8 +304,10 @@ class SeeThroughScript(scripts.Script):
             process_btn = gr.Button("开始处理", variant="primary")
             process_btn.click(
                 process_image,
-                inputs=[input_mode, image_upload, image_path, save_to_psd, resolution, 
-                       use_layerdiff3d, use_marigold, use_sam],
+                inputs=[input_mode, image_upload, image_path, save_to_psd, resolution, batch_size, 
+                       use_layerdiff3d, use_marigold, use_sam,
+                       enable_lr_split, enable_hair_split, enable_accessories, enable_equipment,
+                       cache_tag_embeds, group_offload],
                 outputs=[output_info]
             )
     
