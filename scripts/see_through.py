@@ -91,20 +91,9 @@ class SeeThroughScript(scripts.Script):
             with gr.Row(visible=False) as see_through_options:
                 with gr.Column():
                     gr.Markdown("### 图像输入")
-                    input_mode = gr.Radio(
-                        label="输入模式",
-                        choices=["使用生成的图像", "上传图像", "指定图像路径"],
-                        value="使用生成的图像"
-                    )
                     image_upload = gr.Image(
                         label="上传图像",
-                        type="pil",
-                        visible=False
-                    )
-                    image_path = gr.Textbox(
-                        label="图像路径",
-                        placeholder="D:\\path\\to\\image.png",
-                        visible=False
+                        type="pil"
                     )
                     
                 with gr.Column():
@@ -137,8 +126,13 @@ class SeeThroughScript(scripts.Script):
                         step=1,
                         info="较小的批处理大小可减少显存占用"
                     )
+                    seed = gr.Number(
+                        label="随机种子",
+                        value=-1,
+                        precision=0,
+                        info="设置随机种子以控制生成结果的可重复性（-1表示随机）"
+                    )
                     
-                
                 with gr.Column():
                     gr.Markdown("### 分割模式")
                     segmentation_mode = gr.Radio(
@@ -158,19 +152,25 @@ class SeeThroughScript(scripts.Script):
                         use_sam = gr.Checkbox(label="使用SAM分割", value=True)
                         
                         with gr.Row():
-                            enable_lr_split = gr.Checkbox(label="启用左右分离", value=True, info="将手、脚、耳等部位分为左右两部分")
-                            enable_hair_split = gr.Checkbox(label="启用头发分割", value=True, info="将头发分为前发、后发、左发、右发")
-                            enable_accessories = gr.Checkbox(label="处理饰品图层", value=True, info="优化饰品和配饰的透明度")
-                            enable_equipment = gr.Checkbox(label="处理装备图层", value=True, info="优化武器、护甲等装备的显示")
+                            enable_lr_split = gr.Checkbox(label="启用左右分离", value=False, info="将手、脚、耳等部位分为左右两部分")
+                            enable_hair_split = gr.Checkbox(label="启用头发分割", value=False, info="将头发分为前发、后发、左发、右发")
+                            enable_accessories = gr.Checkbox(label="处理饰品图层", value=False, info="优化饰品和配饰的透明度")
+                            enable_equipment = gr.Checkbox(label="处理装备图层", value=False, info="优化武器、护甲等装备的显示")
                     
                     with gr.Column(visible=False) as scene_segmentation_options:
                         gr.Markdown("**场景分割选项**")
+                        # 添加分割模式选择
+                        scene_segmentation_mode = gr.Radio(
+                            label="分割模式",
+                            choices=[("限制数量", "limited"), ("分割所有目标", "all")],
+                            value="limited",
+                            interactive=True
+                        )
                         scene_max_masks = gr.Number(
                             label="最大分割数量",
-                            minimum=1,
                             value=10,
-                            step=1,
-                            info="控制分割出的元素数量"
+                            precision=0,
+                            interactive=True
                         )
                         scene_min_area = gr.Slider(
                             label="最小区域大小",
@@ -193,8 +193,6 @@ class SeeThroughScript(scripts.Script):
                     gr.Markdown("### 内存优化选项")
                     use_nf4_quantization = gr.Checkbox(label="使用NF4量化 (8GB GPU)", value=True, info="使用4位量化模型权重，峰值显存~8GB")
                     cache_tag_embeds = gr.Checkbox(label="缓存文本嵌入", value=True, info="节省约2GB显存且无速度损失")
-                    group_offload = gr.Checkbox(label="启用组卸载", value=False, info="将显存降至~0.2GB，但速度降低2-3倍")
-                    cpu_offload = gr.Checkbox(label="启用CPU卸载", value=False, info="将模型卸载到CPU以节省显存")
                 
                 with gr.Column():
                     gr.Markdown("### 模型路径与下载")
@@ -210,8 +208,8 @@ class SeeThroughScript(scripts.Script):
                     gr.Markdown("  - `sam_vitl0b3195.pth`")
                     gr.Markdown("")
                     gr.Markdown("**模型下载说明**:")
-                    gr.Markdown("1. 所有模型均已包含在整合包中")
-                    gr.Markdown("2. 如需更新或单独下载模型，请从群主网盘中获取")
+                    gr.Markdown("1. 所有模型在网盘中，请从群主网盘中获取")
+                    gr.Markdown("2. 8g显存使用NF4量化模型，16g可使用全参数模型")
             
             with gr.Row(visible=False) as output_options:
                 with gr.Column():
@@ -222,31 +220,32 @@ class SeeThroughScript(scripts.Script):
                     )
                     open_dir_btn = gr.Button("打开输出目录", variant="secondary")
             
-            def update_input_mode(mode):
-                return gr.update(visible=mode == "上传图像"), gr.update(visible=mode == "指定图像路径")
-            
             def toggle_options(enabled):
                 return gr.update(visible=enabled), gr.update(visible=enabled)
 
             def toggle_semantic_mode(use_semantic):
                 return gr.update(visible=use_semantic)
 
-            def open_output_dir():
-                output_dir = os.path.join(os.path.dirname(__file__), "..", "see-through", "workspace", "layerdiff_output")
-                output_dir = os.path.abspath(output_dir)
-                if os.path.exists(output_dir):
-                    subprocess.run(['explorer', output_dir])
-                    return f"已打开目录: {output_dir}"
-                else:
-                    os.makedirs(output_dir, exist_ok=True)
-                    subprocess.run(['explorer', output_dir])
-                    return f"已创建并打开目录: {output_dir}"
-            
-            input_mode.change(
-                update_input_mode,
-                inputs=[input_mode],
-                outputs=[image_upload, image_path]
-            )
+            def open_output_dir(segmentation_mode):
+                """打开输出目录"""
+                try:
+                    see_through_path = os.path.join(os.path.dirname(__file__), "..", "see-through")
+                    if segmentation_mode == "场景分割 (SAM)":
+                        output_dir = os.path.join(see_through_path, "workspace", "scene_output")
+                    else:
+                        output_dir = os.path.join(see_through_path, "workspace", "layerdiff_output")
+                    output_dir = os.path.abspath(output_dir)
+                    if os.path.exists(output_dir):
+                        subprocess.run(['explorer', output_dir])
+                        return f"已打开目录: {output_dir}"
+                    else:
+                        os.makedirs(output_dir, exist_ok=True)
+                        subprocess.run(['explorer', output_dir])
+                        return f"已创建并打开目录: {output_dir}"
+                except Exception as e:
+                    error_msg = f"打开目录失败: {str(e)}"
+                    print(error_msg)
+                    return error_msg
             
             segmentation_mode.change(
                 fn=lambda mode: {
@@ -265,15 +264,15 @@ class SeeThroughScript(scripts.Script):
             
             open_dir_btn.click(
                 open_output_dir,
-                inputs=[],
+                inputs=[segmentation_mode],
                 outputs=[output_info]
             )
             
-            def process_image(mode, uploaded_image, path, save_psd, resolution, num_inference_steps, batch_size, 
+            def process_image(uploaded_image, save_psd, resolution, num_inference_steps, batch_size, seed,
                             use_layerdiff, use_marigold_depth, use_sam_seg,
                             enable_lr_split, enable_hair_split, enable_accessories, enable_equipment,
-                            use_nf4_quantization, cpu_offload, cache_tag_embeds, group_offload,
-                            segmentation_mode, scene_max_masks, scene_min_area, scene_model_type):
+                            use_nf4_quantization, cache_tag_embeds,
+                            segmentation_mode, scene_segmentation_mode, scene_max_masks, scene_min_area, scene_model_type):
                 input_image = None
                 
                 try:
@@ -281,39 +280,28 @@ class SeeThroughScript(scripts.Script):
                     logger.info("See-Through: 开始处理图像")
                     logger.info("=" * 50)
                     
+                    if not uploaded_image:
+                        logger.error("错误：请上传图像")
+                        return "错误：请上传图像"
+
                     see_through_path = os.path.join(os.path.dirname(__file__), "..", "see-through")
                     temp_dir = os.path.join(see_through_path, "workspace", "temp")
                     os.makedirs(temp_dir, exist_ok=True)
                     logger.info(f"临时目录: {temp_dir}")
                     
-                    if mode == "使用生成的图像":
-                        logger.error("错误：请使用其他输入模式")
-                        return "错误：请使用其他输入模式"
-                    elif mode == "上传图像":
-                        if not uploaded_image:
-                            logger.error("错误：请上传图像")
-                            return "错误：请上传图像"
-                        import time
-                        timestamp = int(time.time() * 1000)
-                        unique_filename = f"uploaded_image_{timestamp}.png"
-                        temp_path = os.path.join(temp_dir, unique_filename)
-                        uploaded_image.save(temp_path)
-                        input_image = temp_path
-                        logger.info(f"上传图像已保存: {temp_path}")
-                    elif mode == "指定图像路径":
-                        if not path:
-                            logger.error("错误：请输入图像路径")
-                            return "错误：请输入图像路径"
-                        input_image = path
-                        logger.info(f"使用指定图像: {path}")
-                    else:
-                        logger.error("错误：请选择有效的输入模式")
-                        return "错误：请选择有效的输入模式"
+                    import time
+                    timestamp = int(time.time() * 1000)
+                    unique_filename = f"uploaded_image_{timestamp}.png"
+                    temp_path = os.path.join(temp_dir, unique_filename)
+                    uploaded_image.save(temp_path)
+                    input_image = temp_path
+                    logger.info(f"上传图像已保存: {temp_path}")
                     
                     logger.info(f"输入图像: {input_image}")
                     logger.info(f"输出目录: {self.output_dir}")
                     logger.info(f"处理分辨率: {resolution}")
                     logger.info(f"推理步数: {num_inference_steps}")
+                    logger.info(f"随机种子: {seed}")
                     logger.info(f"保存PSD: {save_psd}")
                     logger.info(f"使用NF4量化: {use_nf4_quantization}")
                     
@@ -345,10 +333,27 @@ class SeeThroughScript(scripts.Script):
                             
                             segmenter = SceneSegmenter(model_type=scene_model_type)
                             
+                            # 根据分割模式决定最大分割数量
+                            if scene_segmentation_mode == "all":
+                                # 分割所有目标，设置一个很大的数值
+                                max_masks = 9999
+                                logger.info("[Scene Segmentation] 分割所有目标模式")
+                            else:
+                                # 限制数量模式
+                                try:
+                                    max_masks = int(scene_max_masks)
+                                    if max_masks <= 0:
+                                        max_masks = 10  # 默认值
+                                        logger.info("[Scene Segmentation] 最大分割数量必须大于0，使用默认值10")
+                                except (ValueError, TypeError):
+                                    max_masks = 10  # 默认值
+                                    logger.info("[Scene Segmentation] 无效的最大分割数量，使用默认值10")
+                                logger.info(f"[Scene Segmentation] 限制数量模式，最多 {max_masks} 个目标")
+                            
                             masks = segmenter.segment_image(
                                 image_path=input_image,
                                 min_area=scene_min_area,
-                                max_masks=scene_max_masks
+                                max_masks=max_masks
                             )
                             
                             output_paths = segmenter.create_layer_images(
@@ -385,12 +390,19 @@ class SeeThroughScript(scripts.Script):
                         else:
                             if use_nf4_quantization:
                                 script_name = "inference_psd_optimized.py"
+                                
+                                # 处理随机种子：-1表示随机生成
+                                import random
+                                actual_seed = seed if seed != -1 else random.randint(0, 2**32 - 1)
+                                logger.info(f"实际使用种子: {actual_seed}")
+                                
                                 cmd = [
                                     sys.executable,
                                     os.path.join(see_through_path, "inference", "scripts", script_name),
                                     "--srcp", input_image,
                                     "--resolution", str(resolution),
                                     "--num_inference_steps", str(num_inference_steps),
+                                    "--seed", str(actual_seed),
                                     "--quant_mode", "nf4"
                                 ]
                                 
@@ -400,26 +412,28 @@ class SeeThroughScript(scripts.Script):
                                 if enable_lr_split:
                                     cmd.append("--tblr_split")
                                 
-                                if group_offload:
-                                    cmd.append("--group_offload")
-                                
-                                if cpu_offload:
-                                    cmd.append("--cpu_offload")
-                                
                                 if cache_tag_embeds:
                                     cmd.append("--cache_tag_embeds")
                                 
                                 logger.info(f"使用优化版NF4量化流水线 (支持模型缓存)")
                                 logger.info(f"深度估计分辨率: {resolution} (与主分辨率一致)")
                                 logger.info(f"推理步数: {num_inference_steps}")
+                                logger.info(f"随机种子: {actual_seed}")
                             else:
                                 script_name = "inference_psd_optimized.py"
+                                
+                                # 处理随机种子：-1表示随机生成
+                                import random
+                                actual_seed = seed if seed != -1 else random.randint(0, 2**32 - 1)
+                                logger.info(f"实际使用种子: {actual_seed}")
+                                
                                 cmd = [
                                     sys.executable,
                                     os.path.join(see_through_path, "inference", "scripts", script_name),
                                     "--srcp", input_image,
                                     "--resolution", str(resolution),
                                     "--num_inference_steps", str(num_inference_steps),
+                                    "--seed", str(actual_seed),
                                     "--quant_mode", "none"
                                 ]
                                 
@@ -431,15 +445,13 @@ class SeeThroughScript(scripts.Script):
                                 
                                 if cache_tag_embeds:
                                     cmd.append("--cache_tag_embeds")
-                                if group_offload:
-                                    cmd.append("--group_offload")
                                 
                                 logger.info(f"使用优化版标准流水线 (支持模型缓存)")
                                 logger.info(f"推理步数: {num_inference_steps}")
-                            
+                                logger.info(f"随机种子: {actual_seed}")
                             logger.info(f"执行命令: {' '.join(cmd)}")
                             logger.info(f"图层分割选项 - 左右分离: {enable_lr_split}, 头发分割: {enable_hair_split}, 饰品处理: {enable_accessories}, 装备处理: {enable_equipment}")
-                            logger.info(f"内存优化选项 - NF4量化: {use_nf4_quantization}, 缓存文本嵌入: {cache_tag_embeds}, 组卸载: {group_offload}")
+                            logger.info(f"内存优化选项 - NF4量化: {use_nf4_quantization}, 缓存文本嵌入: {cache_tag_embeds}")
                             logger.info(f"推理选项 - 步数: {num_inference_steps}")
                             logger.info("开始执行处理脚本...")
                             
@@ -512,11 +524,11 @@ class SeeThroughScript(scripts.Script):
             process_btn = gr.Button("开始处理", variant="primary")
             process_btn.click(
                 process_image,
-                inputs=[input_mode, image_upload, image_path, save_to_psd, resolution, num_inference_steps, batch_size, 
+                inputs=[image_upload, save_to_psd, resolution, num_inference_steps, batch_size, seed,
                        use_layerdiff3d, use_marigold, use_sam,
                        enable_lr_split, enable_hair_split, enable_accessories, enable_equipment,
-                       use_nf4_quantization, cpu_offload, cache_tag_embeds, group_offload,
-                       segmentation_mode, scene_max_masks, scene_min_area, scene_model_type],
+                       use_nf4_quantization, cache_tag_embeds,
+                       segmentation_mode, scene_segmentation_mode, scene_max_masks, scene_min_area, scene_model_type],
                 outputs=[output_info]
             )
     
