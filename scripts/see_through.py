@@ -24,12 +24,6 @@ inference_path = os.path.join(see_through_path, "inference")
 inference_path = os.path.abspath(inference_path)
 if inference_path not in sys.path:
     sys.path.insert(0, inference_path)
-    logger.info(f"[Path] Added to sys.path: {inference_path}")
-    
-if not os.path.exists(inference_path):
-    logger.error(f"[Path Error] Inference path does not exist: {inference_path}")
-else:
-    logger.info(f"[Path OK] Inference path exists: {inference_path}")
 
 def install_dependencies():
     """自动安装依赖"""
@@ -45,13 +39,10 @@ def install_dependencies():
         for module_name, package_name in dependencies.items():
             try:
                 importlib.import_module(module_name)
-                logger.info(f"{package_name} 已安装")
             except ImportError:
-                logger.warning(f"{package_name} 未安装，正在安装...")
                 missing_deps.append(package_name)
         
         if missing_deps:
-            logger.info("正在安装缺失的依赖...")
             for package in missing_deps:
                 try:
                     subprocess.check_call(
@@ -59,22 +50,21 @@ def install_dependencies():
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL
                     )
-                    logger.info(f"{package} 安装成功")
                 except subprocess.CalledProcessError as e:
-                    logger.error(f"{package} 安装失败: {e}")
+                    pass
     except Exception as e:
-        logger.error(f"依赖安装检查失败: {e}")
+        pass
 
 def on_app_started(demo, app):
     """WebUI启动时自动安装依赖"""
-    logger.info("See-Through: 检查依赖...")
     install_dependencies()
 
 class SeeThroughScript(scripts.Script):
     def __init__(self):
         self.enabled = False
         see_through_path = os.path.join(os.path.dirname(__file__), "..", "see-through")
-        self.output_dir = os.path.join(see_through_path, "workspace", "layerdiff_output")
+        webui_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        self.output_dir = os.path.join(webui_dir, "output", "See-Through", "layerdiff_output")
         
     def title(self) -> str:
         return "See-Through Layer Decomposition"
@@ -105,7 +95,7 @@ class SeeThroughScript(scripts.Script):
                     resolution = gr.Slider(
                         label="处理分辨率",
                         minimum=512,
-                        maximum=1536,
+                        maximum=1680,
                         value=1024,
                         step=64,
                         info="较低的分辨率可减少显存占用，提高处理速度"
@@ -230,11 +220,11 @@ class SeeThroughScript(scripts.Script):
             def open_output_dir(segmentation_mode):
                 """打开输出目录"""
                 try:
-                    see_through_path = os.path.join(os.path.dirname(__file__), "..", "see-through")
+                    webui_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
                     if segmentation_mode == "场景分割 (SAM)":
-                        output_dir = os.path.join(see_through_path, "workspace", "scene_output")
+                        output_dir = os.path.join(webui_dir, "output", "See-Through", "scene_output")
                     else:
-                        output_dir = os.path.join(see_through_path, "workspace", "layerdiff_output")
+                        output_dir = os.path.join(webui_dir, "output", "See-Through", "layerdiff_output")
                     output_dir = os.path.abspath(output_dir)
                     if os.path.exists(output_dir):
                         subprocess.run(['explorer', output_dir])
@@ -286,6 +276,7 @@ class SeeThroughScript(scripts.Script):
                         return "错误：请上传图像"
 
                     see_through_path = os.path.join(os.path.dirname(__file__), "..", "see-through")
+                    webui_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
                     temp_dir = os.path.join(see_through_path, "workspace", "temp")
                     os.makedirs(temp_dir, exist_ok=True)
                     logger.info(f"临时目录: {temp_dir}")
@@ -329,7 +320,7 @@ class SeeThroughScript(scripts.Script):
                             
                             import time
                             timestamp = int(time.time() * 1000)
-                            output_dir = os.path.join(see_through_path, "workspace", "scene_output", f"scene_{timestamp}")
+                            output_dir = os.path.join(webui_dir, "output", "See-Through", "scene_output", f"scene_{timestamp}")
                             os.makedirs(output_dir, exist_ok=True)
                             
                             segmenter = SceneSegmenter(model_type=scene_model_type)
@@ -401,6 +392,7 @@ class SeeThroughScript(scripts.Script):
                                     sys.executable,
                                     os.path.join(see_through_path, "inference", "scripts", script_name),
                                     "--srcp", input_image,
+                                    "--save_dir", self.output_dir,
                                     "--resolution", str(resolution),
                                     "--num_inference_steps", str(num_inference_steps),
                                     "--seed", str(actual_seed),
@@ -432,6 +424,7 @@ class SeeThroughScript(scripts.Script):
                                     sys.executable,
                                     os.path.join(see_through_path, "inference", "scripts", script_name),
                                     "--srcp", input_image,
+                                    "--save_dir", self.output_dir,
                                     "--resolution", str(resolution),
                                     "--num_inference_steps", str(num_inference_steps),
                                     "--seed", str(actual_seed),
@@ -551,8 +544,8 @@ def on_ui_settings():
             section=("see_through", "See-Through")
         )
     )
-    see_through_path = os.path.join(os.path.dirname(__file__), "..", "see-through")
-    default_output_dir = os.path.join(see_through_path, "workspace", "layerdiff_output")
+    webui_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    default_output_dir = os.path.join(webui_dir, "output", "See-Through", "layerdiff_output")
     shared.opts.add_option(
         key="see_through_output_dir",
         info=shared.OptionInfo(
