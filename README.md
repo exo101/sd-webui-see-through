@@ -215,11 +215,11 @@ A:
 ## 模型位置
 
 ### 人物分割模型
-- **Marigold 深度估计模型**：`sd-webui-forge-neo-v2\webui\models\diffusers\models--24yearsold--seethroughv0.0.1_marigold_nf4`
-- **LayerDiff 3D 模型**：`sd-webui-forge-neo-v2\webui\models\diffusers\models--24yearsold--seethroughv0.0.2_layerdiff3d_nf4`
+- **Marigold 深度估计模型**：`sd-webui-forge-neo\webui\models\diffusers\models--24yearsold--seethroughv0.0.1_marigold_nf4`
+- **LayerDiff 3D 模型**：`sd-webui-forge-neo\webui\models\diffusers\models--24yearsold--seethroughv0.0.2_layerdiff3d_nf4`
 
 ### 场景分割模型
-- **SAM 模型**：`sd-webui-forge-neo-v2\webui\models\sams`
+- **SAM 模型**：`sd-webui-forge-neo\webui\models\sams`
   - `sam_vit_b_01ec64.pth`（小模型）
   - `sam_vit_h_4b8939.pth`（大模型）
   - `sam_vitl0b3195.pth`（中模型）
