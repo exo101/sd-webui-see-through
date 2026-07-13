@@ -24,6 +24,12 @@ inference_path = os.path.join(see_through_path, "inference")
 inference_path = os.path.abspath(inference_path)
 if inference_path not in sys.path:
     sys.path.insert(0, inference_path)
+    logger.info(f"[Path] Added to sys.path: {inference_path}")
+    
+if not os.path.exists(inference_path):
+    logger.error(f"[Path Error] Inference path does not exist: {inference_path}")
+else:
+    logger.info(f"[Path OK] Inference path exists: {inference_path}")
 
 def install_dependencies():
     """自动安装依赖"""
@@ -39,10 +45,13 @@ def install_dependencies():
         for module_name, package_name in dependencies.items():
             try:
                 importlib.import_module(module_name)
+                logger.info(f"{package_name} 已安装")
             except ImportError:
+                logger.warning(f"{package_name} 未安装，正在安装...")
                 missing_deps.append(package_name)
         
         if missing_deps:
+            logger.info("正在安装缺失的依赖...")
             for package in missing_deps:
                 try:
                     subprocess.check_call(
@@ -50,13 +59,15 @@ def install_dependencies():
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL
                     )
+                    logger.info(f"{package} 安装成功")
                 except subprocess.CalledProcessError as e:
-                    pass
+                    logger.error(f"{package} 安装失败: {e}")
     except Exception as e:
-        pass
+        logger.error(f"依赖安装检查失败: {e}")
 
 def on_app_started(demo, app):
     """WebUI启动时自动安装依赖"""
+    logger.info("See-Through: 检查依赖...")
     install_dependencies()
 
 class SeeThroughScript(scripts.Script):
@@ -82,20 +93,26 @@ class SeeThroughScript(scripts.Script):
                 with gr.Column():
                     gr.Markdown("### 图像输入")
                     image_upload = gr.Image(
-                        label="上传图像",
+                        label="上传单张图像",
                         type="pil"
+                    )
+                    batch_files = gr.File(
+                        label="批量上传图像（支持多选）",
+                        file_count="multiple",
+                        file_types=["image"]
                     )
                     
                 with gr.Column():
                     gr.Markdown("### 处理选项")
                     save_to_psd = gr.Checkbox(label="保存为PSD文件", value=True)
+                    preview_result = gr.Gallery(label="分离效果预览", columns=3, height="auto", object_fit="contain")
                     
                 with gr.Column():
                     gr.Markdown("### 高级选项")
                     resolution = gr.Slider(
                         label="处理分辨率",
                         minimum=512,
-                        maximum=1680,
+                        maximum=1536,
                         value=1024,
                         step=64,
                         info="较低的分辨率可减少显存占用，提高处理速度"
@@ -107,14 +124,6 @@ class SeeThroughScript(scripts.Script):
                         value=30,
                         step=5,
                         info="较低的步数可加快速度，但可能降低质量（推荐20-30）"
-                    )
-                    batch_size = gr.Slider(
-                        label="批处理大小",
-                        minimum=1,
-                        maximum=8,
-                        value=4,
-                        step=1,
-                        info="较小的批处理大小可减少显存占用"
                     )
                     seed = gr.Number(
                         label="随机种子",
@@ -143,9 +152,6 @@ class SeeThroughScript(scripts.Script):
                         
                         with gr.Row():
                             enable_lr_split = gr.Checkbox(label="启用左右分离", value=False, info="将手、脚、耳等部位分为左右两部分")
-                            enable_hair_split = gr.Checkbox(label="启用头发分割", value=False, info="将头发分为前发、后发、左发、右发")
-                            enable_accessories = gr.Checkbox(label="处理饰品图层", value=False, info="优化饰品和配饰的透明度")
-                            enable_equipment = gr.Checkbox(label="处理装备图层", value=False, info="优化武器、护甲等装备的显示")
                     
                     with gr.Column(visible=False) as scene_segmentation_options:
                         gr.Markdown("**场景分割选项**")
@@ -259,9 +265,9 @@ class SeeThroughScript(scripts.Script):
                 outputs=[output_info]
             )
             
-            def process_image(uploaded_image, save_psd, resolution, num_inference_steps, batch_size, seed,
+            def process_image(uploaded_image, save_psd, resolution, num_inference_steps, seed,
                             use_layerdiff, use_marigold_depth, use_sam_seg,
-                            enable_lr_split, enable_hair_split, enable_accessories, enable_equipment,
+                            enable_lr_split,
                             use_nf4_quantization, cache_tag_embeds,
                             segmentation_mode, scene_segmentation_mode, scene_max_masks, scene_min_area, scene_model_type):
                 input_image = None
@@ -273,7 +279,7 @@ class SeeThroughScript(scripts.Script):
                     
                     if not uploaded_image:
                         logger.error("错误：请上传图像")
-                        return "错误：请上传图像"
+                        return "错误：请上传图像", None
 
                     see_through_path = os.path.join(os.path.dirname(__file__), "..", "see-through")
                     webui_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -368,7 +374,7 @@ class SeeThroughScript(scripts.Script):
                                     logger.warning("PSD 文件生成失败（可能缺少 psd-tools）")
                             except Exception as e:
                                 logger.error(f"生成 PSD 文件失败: {e}")
-                                return f"场景分割成功，但生成 PSD 文件失败: {e}"
+                                return f"场景分割成功，但生成 PSD 文件失败: {e}", output_paths if output_paths else None
                             
                             logger.info("=" * 50)
                             logger.info("See-Through: 场景分割完成!")
@@ -378,7 +384,8 @@ class SeeThroughScript(scripts.Script):
                                 logger.info(f"  - {os.path.basename(path)}")
                             logger.info(f"PSD 文件: {os.path.basename(psd_path)}")
                             logger.info("=" * 50)
-                            return f"场景分割成功！\n输出文件保存在: {output_dir}\nPSD 文件: {psd_path}"
+                            # 返回所有图层作为预览
+                            return f"场景分割成功！\n输出文件保存在: {output_dir}\nPSD 文件: {psd_path}", output_paths if output_paths else None
                         else:
                             if use_nf4_quantization:
                                 script_name = "inference_psd_optimized.py"
@@ -444,7 +451,7 @@ class SeeThroughScript(scripts.Script):
                                 logger.info(f"推理步数: {num_inference_steps}")
                                 logger.info(f"随机种子: {actual_seed}")
                             logger.info(f"执行命令: {' '.join(cmd)}")
-                            logger.info(f"图层分割选项 - 左右分离: {enable_lr_split}, 头发分割: {enable_hair_split}, 饰品处理: {enable_accessories}, 装备处理: {enable_equipment}")
+                            logger.info(f"图层分割选项 - 左右分离: {enable_lr_split}")
                             logger.info(f"内存优化选项 - NF4量化: {use_nf4_quantization}, 缓存文本嵌入: {cache_tag_embeds}")
                             logger.info(f"推理选项 - 步数: {num_inference_steps}")
                             logger.info("开始执行处理脚本...")
@@ -468,7 +475,7 @@ class SeeThroughScript(scripts.Script):
                                 while process.poll() is None:
                                     if time.time() - start_time > timeout_seconds:
                                         process.kill()
-                                        return f"处理超时（超过{timeout_seconds//60}分钟），请检查模型加载情况"
+                                        return f"处理超时（超过{timeout_seconds//60}分钟），请检查模型加载情况", None
                                     
                                     line = process.stdout.readline()
                                     if line:
@@ -480,7 +487,7 @@ class SeeThroughScript(scripts.Script):
                             except Exception as e:
                                 process.kill()
                                 logger.error(f"处理过程中发生异常: {e}")
-                                return f"处理过程中发生异常: {e}"
+                                return f"处理过程中发生异常: {e}", None
                             finally:
                                 if process.poll() is None:
                                     process.kill()
@@ -492,20 +499,33 @@ class SeeThroughScript(scripts.Script):
                                 logger.info("See-Through: 处理完成!")
                                 logger.info(f"输出文件保存在: {self.output_dir}")
                                 logger.info("=" * 50)
-                                return f"处理成功！输出文件保存在: {self.output_dir}"
+                                # 收集所有图层文件作为预览
+                                import glob
+                                saved_dir = os.path.join(self.output_dir, f"uploaded_image_{timestamp}")
+                                preview_images = None
+                                if os.path.exists(saved_dir):
+                                    png_files = sorted(
+                                        glob.glob(os.path.join(saved_dir, "*.png")),
+                                        key=os.path.getmtime, reverse=True
+                                    )
+                                    # 排除src_img.png和深度图像，只显示各图层结果
+                                    preview_images = [f for f in png_files if 'src_img' not in os.path.basename(f) and 'depth' not in os.path.basename(f).lower()]
+                                    if not preview_images:
+                                        preview_images = png_files
+                                return f"处理成功！输出文件保存在: {self.output_dir}", preview_images
                             else:
                                 logger.error("=" * 50)
                                 logger.error("See-Through: 处理失败!")
                                 logger.error(f"错误输出: {output_text}")
                                 logger.error("=" * 50)
-                                return f"处理失败：{output_text}"
+                                return f"处理失败：{output_text}", None
                     except Exception as e:
                         logger.error("=" * 50)
                         logger.error(f"See-Through: 处理失败! 错误: {str(e)}")
                         logger.error("=" * 50)
                         import traceback
                         logger.error(traceback.format_exc())
-                        return f"处理失败: {str(e)}"
+                        return f"处理失败: {str(e)}", None
                         
                 except Exception as e:
                     logger.error("=" * 50)
@@ -513,17 +533,171 @@ class SeeThroughScript(scripts.Script):
                     logger.error("=" * 50)
                     import traceback
                     logger.error(traceback.format_exc())
-                    return f"错误：{str(e)}"
+                    return f"错误：{str(e)}", None
             
-            process_btn = gr.Button("开始处理", variant="primary")
+            # ---------- 批量处理 ----------
+            def process_images_batch(batch_files, save_psd, resolution, num_inference_steps, seed,
+                                     use_layerdiff, use_marigold_depth, use_sam_seg,
+                                     enable_lr_split,
+                                     use_nf4_quantization, cache_tag_embeds,
+                                     segmentation_mode, scene_segmentation_mode, scene_max_masks, scene_min_area, scene_model_type):
+                if not batch_files:
+                    return "请上传至少一张图像", None
+
+                if not isinstance(batch_files, list):
+                    return "请使用批量上传组件上传多张图像", None
+
+                see_through_path = os.path.join(os.path.dirname(__file__), "..", "see-through")
+                temp_dir = os.path.join(see_through_path, "workspace", "temp")
+                os.makedirs(temp_dir, exist_ok=True)
+
+                import time
+                import random
+                import glob
+                import shutil
+
+                results = []
+                total = len(batch_files)
+                last_preview = None
+                success_count = 0
+                fail_count = 0
+
+                logger.info("=" * 50)
+                logger.info(f"See-Through: 开始批量处理 {total} 张图像")
+                logger.info("=" * 50)
+
+                for i, file_info in enumerate(batch_files):
+                    # 获取文件路径
+                    file_path = None
+                    if hasattr(file_info, 'name'):
+                        file_path = file_info.name
+                    elif isinstance(file_info, str):
+                        file_path = file_info
+                    if not file_path or not os.path.exists(file_path):
+                        fail_count += 1
+                        results.append(f"  [{i+1}/{total}] (无效文件): 跳过 ✗")
+                        continue
+
+                    basename = os.path.splitext(os.path.basename(file_path))[0]
+                    timestamp = int(time.time() * 1000)
+                    unique_filename = f"batch_{basename}_{timestamp}.png"
+                    temp_path = os.path.join(temp_dir, unique_filename)
+                    shutil.copy2(file_path, temp_path)
+
+                    logger.info(f"[{i+1}/{total}] 处理: {basename}")
+
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
+                    actual_seed = seed if seed != -1 else random.randint(0, 2**32 - 1)
+
+                    # 只支持人物分割模式批量处理
+                    if segmentation_mode == "场景分割 (SAM)":
+                        logger.warning(f"[{i+1}/{total}] 批量处理不支持场景分割模式，跳过 {basename}")
+                        fail_count += 1
+                        results.append(f"  [{i+1}/{total}] {basename}: 不支持场景分割 ✗")
+                        continue
+
+                    quant_mode = "nf4" if use_nf4_quantization else "none"
+                    script_name = "inference_psd_optimized.py"
+
+                    cmd = [
+                        sys.executable,
+                        os.path.join(see_through_path, "inference", "scripts", script_name),
+                        "--srcp", temp_path,
+                        "--save_dir", self.output_dir,
+                        "--resolution", str(resolution),
+                        "--num_inference_steps", str(num_inference_steps),
+                        "--seed", str(actual_seed),
+                        "--quant_mode", quant_mode
+                    ]
+
+                    if save_psd:
+                        cmd.append("--save_to_psd")
+                    if enable_lr_split:
+                        cmd.append("--tblr_split")
+                    if cache_tag_embeds:
+                        cmd.append("--cache_tag_embeds")
+
+                    logger.info(f"  [{i+1}/{total}] 命令: {' '.join(cmd)}")
+
+                    try:
+                        process = subprocess.Popen(
+                            cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                            cwd=see_through_path,
+                            bufsize=1,
+                            universal_newlines=True
+                        )
+
+                        timeout_seconds = 30 * 60
+                        start_time = time.time()
+                        timed_out = False
+
+                        while process.poll() is None:
+                            if time.time() - start_time > timeout_seconds:
+                                process.kill()
+                                timed_out = True
+                                break
+                            line = process.stdout.readline()
+                            if line:
+                                logger.info(f"[See-Through Batch/{i+1}] {line.rstrip()}")
+                            else:
+                                time.sleep(0.1)
+
+                        if timed_out:
+                            fail_count += 1
+                            results.append(f"  [{i+1}/{total}] {basename}: 超时 ✗")
+                        elif process.returncode == 0:
+                            success_count += 1
+                            results.append(f"  [{i+1}/{total}] {basename}: 成功 ✓")
+
+                            # 收集所有图层文件作为预览
+                            saved_dir = os.path.join(self.output_dir, f"batch_{basename}_{timestamp}")
+                            if os.path.exists(saved_dir):
+                                png_files = sorted(
+                                    glob.glob(os.path.join(saved_dir, "*.png")),
+                                    key=os.path.getmtime, reverse=True
+                                )
+                                layer_pngs = [f for f in png_files if 'src_img' not in os.path.basename(f) and 'depth' not in os.path.basename(f).lower()]
+                                last_preview = layer_pngs if layer_pngs else png_files
+                        else:
+                            fail_count += 1
+                            results.append(f"  [{i+1}/{total}] {basename}: 失败 ✗")
+                    except Exception as e:
+                        fail_count += 1
+                        results.append(f"  [{i+1}/{total}] {basename}: 错误 - {str(e)}")
+
+                summary = f"批量处理完成！共 {total} 张，成功 {success_count} 张，失败 {fail_count} 张\n"
+                summary += "\n".join(results)
+                logger.info(summary)
+                return summary, last_preview
+
+            with gr.Row():
+                process_btn = gr.Button("开始处理（单张）", variant="primary")
+                batch_process_btn = gr.Button("批量处理", variant="secondary")
+            
             process_btn.click(
                 process_image,
-                inputs=[image_upload, save_to_psd, resolution, num_inference_steps, batch_size, seed,
+                inputs=[image_upload, save_to_psd, resolution, num_inference_steps, seed,
                        use_layerdiff3d, use_marigold, use_sam,
-                       enable_lr_split, enable_hair_split, enable_accessories, enable_equipment,
+                       enable_lr_split,
                        use_nf4_quantization, cache_tag_embeds,
                        segmentation_mode, scene_segmentation_mode, scene_max_masks, scene_min_area, scene_model_type],
-                outputs=[output_info]
+                outputs=[output_info, preview_result]
+            )
+            
+            batch_process_btn.click(
+                process_images_batch,
+                inputs=[batch_files, save_to_psd, resolution, num_inference_steps, seed,
+                       use_layerdiff3d, use_marigold, use_sam,
+                       enable_lr_split,
+                       use_nf4_quantization, cache_tag_embeds,
+                       segmentation_mode, scene_segmentation_mode, scene_max_masks, scene_min_area, scene_model_type],
+                outputs=[output_info, preview_result]
             )
     
     def process(self, p: StableDiffusionProcessing, *args):
